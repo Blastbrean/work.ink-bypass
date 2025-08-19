@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         work.ink bypass
 // @namespace    http://tampermonkey.net/
-// @version      2025-08-19.5
+// @version      2025-08-19.6
 // @description  bypasses work.ink shortened links
 // @author       IHaxU
 // @match        https://work.ink/*
