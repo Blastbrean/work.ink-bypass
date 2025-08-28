@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         work.ink bypass
 // @namespace    http://tampermonkey.net/
-// @version      2025-08-19.7
+// @version      2025-08-28
 // @description  bypasses work.ink shortened links
 // @author       IHaxU
 // @match        https://work.ink/*
@@ -12,71 +12,90 @@
 // ==/UserScript==
 
 (function() {
-    'use strict';
+    "use strict";
+
+    const DEBUG = false; // debug logging
+    const oldLog = console.log;
+    const oldWarn = console.warn;
+    const oldError = console.error;
+    function log(...args) { if (DEBUG) oldLog("[UnShortener]", ...args); }
+    function warn(...args) { if (DEBUG) oldWarn("[UnShortener]", ...args); }
+    function error(...args) { if (DEBUG) oldError("[UnShortener]", ...args); }
+
+    if (DEBUG) console.clear = function() {}; // Disable console.clear to keep logs visible
+
+    const container = document.createElement("div");
+    container.style.position = "fixed";
+    container.style.bottom = "10px";
+    container.style.left = "10px";
+    container.style.zIndex = 999999;
+
+    // Attach closed shadow root
+    const shadow = container.attachShadow({ mode: "closed" });
+
+    // Create your hint element
+    const hint = document.createElement("div");
+    hint.textContent = "🔒 Please solve the captcha to continue";
+
+    Object.assign(hint.style, {
+        background: "rgba(0,0,0,0.8)",
+        color: "#fff",
+        padding: "8px 12px",
+        borderRadius: "6px",
+        fontSize: "14px",
+        fontFamily: "sans-serif",
+        pointerEvents: "none"
+    });
+
+    shadow.appendChild(hint);
+    document.documentElement.appendChild(container);
+
+    // Anti-anti ad-blocker
+    const oldFetch = window.fetch;
+    window.fetch = function (...args) {
+        const url = args[0];
+        log("Fetch called with arguments:", args);
+
+        // Prevents ad-blocker checks, improving user experience and site performance
+        if (url === "https://widgets.outbrain.com/outbrain.js") {
+            warn("Blocked fetch for outbrain.js");
+            return Promise.resolve(new Response(null, { status: 204, statusText: "No Content" }));
+        }
+
+        if (url.startsWith("https://hotjar.com?hash=")) {
+            warn("Blocked fetch for hotjar.com");
+            return Promise.resolve(new Response(null, { status: 204, statusText: "No Content" }));
+        }
+
+        return oldFetch.apply(this, args);
+    }
+
+    const adBlockCheckElementIds = ["AdHeader", "AdContainer", "AD_Top", "homead", "ad-lead"];
+    const realGetElementById = document.getElementById;
+    document.getElementById = function (id) {
+        if (adBlockCheckElementIds.includes(id)) {
+            const fake = document.createElement("div");
+            
+            Object.defineProperty(fake, "offsetHeight", { get: () => 1 });
+            Object.defineProperty(fake, "offsetWidth", { get: () => 1 });
+            
+            return fake;
+        }
+        
+        return realGetElementById.call(this, id);
+    };
+
+    Object.defineProperty(window, "optimize", {
+        value: {},
+        writable: false,
+        configurable: false
+    });
 
     // Global state
-    let encryptionTokenOne = undefined;
-    let encryptionTokenTwo = undefined;
-    let linkInfo = undefined;
-
-    // Encryption/Decryption utilities
-    function encrypt(v, key) {
-        let S = "";
-        const R = [...new TextEncoder().encode(key)];
-        let W = Date.now() % 256;
-        S += W.toString(16).padStart(2, "0");
-
-        for (let _ = 0; _ < v.length; _++) {
-            const y = v.charCodeAt(_);
-            const L = R[(_ * 2 + W) % R.length];
-            const J = ((y ^ L) + _ % 8) % 256;
-            S += J.toString(16).padStart(2, "0");
-            W = (W * 19 + 29) % 256;
-        }
-
-        return S;
-    }
-
-    function decrypt(n, key) {
-        let o = "";
-        const c = [...new TextEncoder().encode(key)];
-        const f = n.substring(0, 2);
-        let v = parseInt(f, 16);
-        const x = n.substring(2).match(/.{1,2}/g) || [];
-
-        for (let y = 0; y < x.length; y++) {
-            const L = parseInt(x[y], 16);
-            const J = c[(y * 2 + v) % c.length];
-            const re = (L - y % 8 + 256) % 256;
-            const ie = String.fromCharCode(re ^ J);
-            o += ie;
-            v = (v * 19 + 29) % 256;
-        }
-
-        return o;
-    }
-
-    function encryptMessage(type, payload) {
-        if (!encryptionTokenOne || !encryptionTokenTwo) {
-            // console.error("Encryption tokens are not set. Cannot encrypt message.");
-            return null;
-        }
-        return encrypt(JSON.stringify({
-            type,
-            payload: encrypt(JSON.stringify(payload), encryptionTokenTwo)
-        }), encryptionTokenOne);
-    }
-
-    function decryptMessage(msg) {
-        if (!encryptionTokenOne || !encryptionTokenTwo) {
-            // console.error("Encryption tokens are not set. Cannot decrypt message.");
-            return null;
-        }
-        const messageBody = JSON.parse(decrypt(msg, encryptionTokenOne));
-        messageBody.payload = JSON.parse(decrypt(messageBody.payload, encryptionTokenTwo));
-        return messageBody;
-    }
-
+    let _sessionController = undefined;
+    let _sendMessage = undefined;
+    let _onLinkDestination = undefined;
+    
     // Constants
     function getClientPacketTypes() {
         return {
@@ -96,146 +115,94 @@
         };
     }
 
-    function getServerPacketTypes() {
-        return {
-            ERROR: "s_error",
-            LINK_INFO: "s_link_info",
-            MONETIZATION: "s_monetization",
-            SOCIAL_DONE: "s_social_done",
-            SOCIAL_RUNNING: "s_social_running",
-            LINK_DESTINATION: "s_link_destination",
-            START_RECAPTCHA_CHECK: "s_start_recaptcha_check",
-            START_HCAPTCHA_CHECK: "s_start_hcaptcha_check",
-            START_TURNSTILE_CHECK: "s_start_turnstile_check",
-            REDIRECTION_CANCELED: "s_redirection_canceled",
-            RECAPTCHA_OKAY: "s_recaptcha_okay",
-            HCAPTCHA_OKAY: "s_hcaptcha_okay",
-            LINK_NOT_FOUND: "s_link_not_found",
-            PROXY_DETECTED: "s_proxy_detected",
-            WORKINK_PASS_LEFT: "s_workink_pass_left",
-            PONG: "s_pong"
-        };
-    }
-
-    // WebSocket handling
-    function handleWebSocketMessage(event) {
-        const serverPacketTypes = getServerPacketTypes();
-        const msg = decryptMessage(event.data);
-
-        if (!msg) {
-            // console.error("Failed to decrypt message:", event.data);
-            return;
-        }
-
-        // console.log("Received message:", msg);
-
-        if (msg.type === serverPacketTypes.LINK_INFO) {
-            linkInfo = msg.payload;
-        } else if (msg.type === serverPacketTypes.LINK_DESTINATION) {
-            window.location.href = msg.payload.url;
-        }
-    }
-
-    function createWebSocketSendProxy(originalSend) {
+    function createSendMessageProxy() {
         const clientPacketTypes = getClientPacketTypes();
 
         return function(...args) {
-            const msg = decryptMessage(args[0]);
+            const packet_type = args[0];
+            const packet_data = args[1];
 
-            if (!msg) {
-                // console.error("Failed to decrypt message for sending:", args[0]);
-                return originalSend.apply(this, args);
+            log("Sent message:", packet_type, packet_data);
+
+            if (packet_type === clientPacketTypes.ADBLOCKER_DETECTED) {
+                warn("Blocked adblocker detected message to avoid false positive.");
+                return;
             }
 
-            // console.log("Sent message:", msg);
+            if (_sessionController.linkInfo && packet_type === clientPacketTypes.TURNSTILE_RESPONSE) {
+                const ret = _sendMessage.apply(this, args);
 
-            if (linkInfo && msg.type === clientPacketTypes.TURNSTILE_RESPONSE) {
-                const ret = originalSend.apply(this, args);
+                hint.textContent = "🎉 Captcha solved, redirecting...";
 
                 // Send bypass messages
-                originalSend.call(this, encryptMessage(clientPacketTypes.MONETIZATION, {
+                _sendMessage.call(this, clientPacketTypes.MONETIZATION, {
                     type: "readArticles2",
                     payload: {
                         event: "read"
                     }
-                }));
+                });
 
-                originalSend.call(this, encryptMessage(clientPacketTypes.MONETIZATION, {
+                _sendMessage.call(this, clientPacketTypes.MONETIZATION, {
                     type: "betterdeals",
                     payload: {
                         event: "installed"
                     }
-                }));
+                });
 
                 return ret;
             }
 
-            return originalSend.apply(this, args);
+            return _sendMessage.apply(this, args);
         };
     }
 
-    function setupWebSocketProxy(webSocket) {
-        if (!(webSocket instanceof WebSocket)) {
-            // console.warn("Attempted to set 'websocket' with a non-WebSocket value:", webSocket);
-            return;
-        }
+    function createOnLinkDestinationProxy() {
+        return function(...args) {
+            const payload = args[0];
 
-        // console.log("It's a WebSocket instance being set.");
+            log("Link destination received:", payload);
 
-        // Add message listener
-        webSocket.addEventListener("message", handleWebSocketMessage);
+            window.location.href = payload.url;
 
-        // Proxy the send method
-        const originalSend = webSocket.send;
-        webSocket.send = createWebSocketSendProxy(originalSend);
+            return _onLinkDestination.apply(this, args);
+        };
     }
 
-    function createWebSocketPropertyProxy(value) {
-        let _webSocketInstance = null;
+    function setupSessionControllerProxy() {
+        _sendMessage = _sessionController.sendMessage;
+        _onLinkDestination = _sessionController.onLinkDestination;
 
-        Object.defineProperty(value, 'websocket', {
-            configurable: true,
-            enumerable: true,
-
-            get() {
-                // console.log("Accessing 'websocket'. Current value:", _webSocketInstance);
-                return _webSocketInstance;
-            },
-
+        const sendMessageProxy = createSendMessageProxy();
+        const onLinkDestinationProxy = createOnLinkDestinationProxy();
+        
+        Object.defineProperty(_sessionController, "sendMessage", {
+            get() { return sendMessageProxy },
             set(newValue) {
-                // console.log("Intercepted 'websocket' being set!");
-                // console.log("Old value:", _webSocketInstance);
-                // console.log("New value:", newValue);
-
-                if (newValue instanceof WebSocket || newValue === null) {
-                    _webSocketInstance = newValue;
-
-                    if (newValue instanceof WebSocket) {
-                        setupWebSocketProxy(newValue);
-                    }
-                } else {
-                    // console.warn("Attempted to set 'websocket' with a non-WebSocket value:", newValue);
-                    _webSocketInstance = newValue;
-                }
+                _sendMessage = newValue
             }
         });
+
+        Object.defineProperty(_sessionController, "onLinkDestination", {
+            get() { return onLinkDestinationProxy },
+            set(newValue) {
+                _onLinkDestination = newValue
+            }
+        });
+
+        log("SessionController proxies installed: sendMessage, onLinkDestination");
     }
 
-    function checkForEncryptionTokens(target, prop, value, receiver) {
+    function checkForSessionController(target, prop, value, receiver) {
         if (value &&
-            typeof value === 'object' &&
-            typeof value.encryptionTokenOne === 'string' &&
-            typeof value.encryptionTokenTwo === 'string' &&
-            value.encryptionTokenOne.length > 0 &&
-            value.encryptionTokenTwo.length > 0 &&
-            !encryptionTokenOne &&
-            !encryptionTokenTwo
+            typeof value === "object" &&
+            typeof value.sendMessage === "function" &&
+            typeof value._onMessage === "function" &&
+            typeof value.onLinkDestination === "function" &&
+            !_sessionController
         ) {
-            encryptionTokenOne = value.encryptionTokenOne;
-            encryptionTokenTwo = value.encryptionTokenTwo;
-            // console.log('[HACK] Intercepted encryption tokens:', encryptionTokenOne, encryptionTokenTwo);
-
-            createWebSocketPropertyProxy(value);
+            _sessionController = value;
+            log("Intercepted session controller:", _sessionController);
+            setupSessionControllerProxy();
         }
 
         return Reflect.set(target, prop, value, receiver);
@@ -245,10 +212,10 @@
         return new Proxy(component, {
             construct(target, args) {
                 const result = Reflect.construct(target, args);
-                // console.log('[HACK] Intercepted SvelteKit component construction:', target, args, result);
+                log("Intercepted SvelteKit component construction:", target, args, result);
 
                 result.$$.ctx = new Proxy(result.$$.ctx, {
-                    set: checkForEncryptionTokens
+                    set: checkForSessionController
                 });
 
                 return result;
@@ -259,7 +226,7 @@
     function createNodeResultProxy(result) {
         return new Proxy(result, {
             get(target, prop, receiver) {
-                if (prop === 'component') {
+                if (prop === "component") {
                     return createComponentProxy(target.component);
                 }
                 return Reflect.get(target, prop, receiver);
@@ -270,34 +237,34 @@
     function createNodeProxy(oldNode) {
         return async (...args) => {
             const result = await oldNode(...args);
-            // console.log('[HACK] Intercepted SvelteKit node result:', result);
+            log("Intercepted SvelteKit node result:", result);
             return createNodeResultProxy(result);
         };
     }
 
     function createKitProxy(kit) {
       	if (typeof kit !== "object" || !kit) return [false, kit];
-      
+
         const originalStart = "start" in kit && kit.start;
         if (!originalStart) return [false, kit];
 
         const kitProxy = new Proxy(kit, {
             get(target, prop, receiver) {
-                if (prop === 'start') {
+                if (prop === "start") {
                     return function(...args) {
                         const appModule = args[0];
                         const options = args[2];
 
-                        if (typeof appModule === 'object' &&
-                            typeof appModule.nodes === 'object' &&
-                            typeof options === 'object' &&
-                            typeof options.node_ids === 'object') {
+                        if (typeof appModule === "object" &&
+                            typeof appModule.nodes === "object" &&
+                            typeof options === "object" &&
+                            typeof options.node_ids === "object") {
 
                             const oldNode = appModule.nodes[options.node_ids[1]];
                             appModule.nodes[options.node_ids[1]] = createNodeProxy(oldNode);
                         }
 
-                        // console.log('[HACK] kit.start intercepted!', options);
+                        log("kit.start intercepted!", options);
                         return originalStart.apply(this, args);
                     };
                 }
@@ -320,14 +287,14 @@
 
                 return await new Promise((resolve) => {
                     result.then(([kit, app, ...args]) => {
-                        // console.log('[HACK] SvelteKit modules loaded');
+                        log("SvelteKit modules loaded");
 
                         const [success, wrappedKit] = createKitProxy(kit);
                         if (success) {
                             // Restore original Promise.all
                             Promise.all = originalPromiseAll;
 
-                            // console.log('[HACK] Wrapped kit ready:', wrappedKit, app);
+                            log("Wrapped kit ready:", wrappedKit, app);
                         }
 
                         resolve([wrappedKit, app, ...args]);
@@ -341,4 +308,27 @@
 
     // Initialize the bypass
     setupSvelteKitInterception();
+
+    // Remove injected ads
+    const observer = new MutationObserver((mutations) => {
+        for (const m of mutations) {
+            for (const node of m.addedNodes) {
+                if (node.nodeType === 1) {
+                    // Direct match
+                    if (node.classList?.contains("adsbygoogle")) {
+                        node.remove();
+                        log("Removed injected ad:", node);
+                    }
+                    // Or children inside the node
+                    node.querySelectorAll?.(".adsbygoogle").forEach((el) => {
+                        el.remove();
+                        log("Removed nested ad:", el);
+                    });
+                }
+            }
+        }
+    });
+
+    // Start observing the document for changes
+    observer.observe(document.documentElement, { childList: true, subtree: true });
 })();
