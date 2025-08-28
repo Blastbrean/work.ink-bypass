@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         work.ink bypass
 // @namespace    http://tampermonkey.net/
-// @version      2025-08-28
+// @version      2025-08-28-1
 // @description  bypasses work.ink shortened links
 // @author       IHaxU
 // @match        https://work.ink/*
@@ -15,16 +15,16 @@
     "use strict";
 
     const DEBUG = false; // debug logging
-    const oldLog = console.log;
-    const oldWarn = console.warn;
-    const oldError = console.error;
+    const oldLog = unsafeWindow.console.log;
+    const oldWarn = unsafeWindow.console.warn;
+    const oldError = unsafeWindow.console.error;
     function log(...args) { if (DEBUG) oldLog("[UnShortener]", ...args); }
     function warn(...args) { if (DEBUG) oldWarn("[UnShortener]", ...args); }
     function error(...args) { if (DEBUG) oldError("[UnShortener]", ...args); }
 
-    if (DEBUG) console.clear = function() {}; // Disable console.clear to keep logs visible
+    if (DEBUG) unsafeWindow.console.clear = function() {}; // Disable console.clear to keep logs visible
 
-    const container = document.createElement("div");
+    const container = unsafeWindow.document.createElement("div");
     container.style.position = "fixed";
     container.style.bottom = "10px";
     container.style.left = "10px";
@@ -34,7 +34,7 @@
     const shadow = container.attachShadow({ mode: "closed" });
 
     // Create your hint element
-    const hint = document.createElement("div");
+    const hint = unsafeWindow.document.createElement("div");
     hint.textContent = "🔒 Please solve the captcha to continue";
 
     Object.assign(hint.style, {
@@ -48,11 +48,11 @@
     });
 
     shadow.appendChild(hint);
-    document.documentElement.appendChild(container);
+    unsafeWindow.document.documentElement.appendChild(container);
 
     // Anti-anti ad-blocker
-    const oldFetch = window.fetch;
-    window.fetch = function (...args) {
+    const oldFetch = unsafeWindow.fetch;
+    unsafeWindow.fetch = function (...args) {
         const url = args[0];
         log("Fetch called with arguments:", args);
 
@@ -71,21 +71,21 @@
     }
 
     const adBlockCheckElementIds = ["AdHeader", "AdContainer", "AD_Top", "homead", "ad-lead"];
-    const realGetElementById = document.getElementById;
-    document.getElementById = function (id) {
+    const realGetElementById = unsafeWindow.document.getElementById;
+    unsafeWindow.document.getElementById = function (id) {
         if (adBlockCheckElementIds.includes(id)) {
-            const fake = document.createElement("div");
-            
+            const fake = unsafeWindow.document.createElement("div");
+
             Object.defineProperty(fake, "offsetHeight", { get: () => 1 });
             Object.defineProperty(fake, "offsetWidth", { get: () => 1 });
-            
+
             return fake;
         }
-        
+
         return realGetElementById.call(this, id);
     };
 
-    Object.defineProperty(window, "optimize", {
+    Object.defineProperty(unsafeWindow, "optimize", {
         value: {},
         writable: false,
         configurable: false
@@ -95,7 +95,7 @@
     let _sessionController = undefined;
     let _sendMessage = undefined;
     let _onLinkDestination = undefined;
-    
+
     // Constants
     function getClientPacketTypes() {
         return {
@@ -174,7 +174,7 @@
 
         const sendMessageProxy = createSendMessageProxy();
         const onLinkDestinationProxy = createOnLinkDestinationProxy();
-        
+
         Object.defineProperty(_sessionController, "sendMessage", {
             get() { return sendMessageProxy },
             set(newValue) {
@@ -276,10 +276,10 @@
     }
 
     function setupSvelteKitInterception() {
-        const originalPromiseAll = Promise.all;
+        const originalPromiseAll = unsafeWindow.Promise.all;
         let intercepted = false;
 
-        Promise.all = async function(promises) {
+        unsafeWindow.Promise.all = async function(promises) {
             const result = originalPromiseAll.call(this, promises);
 
             if (!intercepted) {
@@ -292,7 +292,7 @@
                         const [success, wrappedKit] = createKitProxy(kit);
                         if (success) {
                             // Restore original Promise.all
-                            Promise.all = originalPromiseAll;
+                            unsafeWindow.Promise.all = originalPromiseAll;
 
                             log("Wrapped kit ready:", wrappedKit, app);
                         }
@@ -330,5 +330,5 @@
     });
 
     // Start observing the document for changes
-    observer.observe(document.documentElement, { childList: true, subtree: true });
+    observer.observe(unsafeWindow.document.documentElement, { childList: true, subtree: true });
 })();
