@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         work.ink bypass
 // @namespace    http://tampermonkey.net/
-// @version      2025-08-28-1
+// @version      2025-08-29
 // @description  bypasses work.ink shortened links
 // @author       IHaxU
 // @match        https://work.ink/*
@@ -24,7 +24,7 @@
 
     if (DEBUG) unsafeWindow.console.clear = function() {}; // Disable console.clear to keep logs visible
 
-    const container = unsafeWindow.document.createElement("div");
+    const container = document.createElement("div");
     container.style.position = "fixed";
     container.style.bottom = "10px";
     container.style.left = "10px";
@@ -34,7 +34,7 @@
     const shadow = container.attachShadow({ mode: "closed" });
 
     // Create your hint element
-    const hint = unsafeWindow.document.createElement("div");
+    const hint = document.createElement("div");
     hint.textContent = "🔒 Please solve the captcha to continue";
 
     Object.assign(hint.style, {
@@ -48,52 +48,12 @@
     });
 
     shadow.appendChild(hint);
-    unsafeWindow.document.documentElement.appendChild(container);
-
-    // Anti-anti ad-blocker
-    const oldFetch = unsafeWindow.fetch;
-    unsafeWindow.fetch = function (...args) {
-        const url = args[0];
-        log("Fetch called with arguments:", args);
-
-        // Prevents ad-blocker checks, improving user experience and site performance
-        if (url === "https://widgets.outbrain.com/outbrain.js") {
-            warn("Blocked fetch for outbrain.js");
-            return Promise.resolve(new Response(null, { status: 204, statusText: "No Content" }));
-        }
-
-        if (url.startsWith("https://hotjar.com?hash=")) {
-            warn("Blocked fetch for hotjar.com");
-            return Promise.resolve(new Response(null, { status: 204, statusText: "No Content" }));
-        }
-
-        return oldFetch.apply(this, args);
-    }
-
-    const adBlockCheckElementIds = ["AdHeader", "AdContainer", "AD_Top", "homead", "ad-lead"];
-    const realGetElementById = unsafeWindow.document.getElementById;
-    unsafeWindow.document.getElementById = function (id) {
-        if (adBlockCheckElementIds.includes(id)) {
-            const fake = unsafeWindow.document.createElement("div");
-
-            Object.defineProperty(fake, "offsetHeight", { get: () => 1 });
-            Object.defineProperty(fake, "offsetWidth", { get: () => 1 });
-
-            return fake;
-        }
-
-        return realGetElementById.call(this, id);
-    };
-
-    Object.defineProperty(unsafeWindow, "optimize", {
-        value: {},
-        writable: false,
-        configurable: false
-    });
+    document.documentElement.appendChild(container);
 
     // Global state
     let _sessionController = undefined;
     let _sendMessage = undefined;
+    let _onLinkInfo = undefined;
     let _onLinkDestination = undefined;
 
     // Constants
@@ -135,24 +95,67 @@
                 hint.textContent = "🎉 Captcha solved, redirecting...";
 
                 // Send bypass messages
-                _sendMessage.call(this, clientPacketTypes.MONETIZATION, {
-                    type: "readArticles2",
-                    payload: {
-                        event: "read"
-                    }
-                });
+                for (const monetization of _sessionController.linkInfo.monetizations) {
+                    switch (monetization) {
+                        case 22: { // readArticles2
+                            _sendMessage.call(this, clientPacketTypes.MONETIZATION, {
+                                type: "readArticles2",
+                                payload: {
+                                    event: "read"
+                                }
+                            });
+                            break;
+                        }
 
-                _sendMessage.call(this, clientPacketTypes.MONETIZATION, {
-                    type: "betterdeals",
-                    payload: {
-                        event: "installed"
+                        case 45: { // pdfeditor
+                            _sendMessage.call(this, clientPacketTypes.MONETIZATION, {
+                                type: "pdfeditor",
+                                payload: {
+                                    event: "installed"
+                                }
+                            });
+                            break;
+                        }
+
+                        case 57: { // betterdeals
+                            _sendMessage.call(this, clientPacketTypes.MONETIZATION, {
+                                type: "betterdeals",
+                                payload: {
+                                    event: "installed"
+                                }
+                            });
+                        }
+
+                        default: {
+                            log("Unknown monetization type:", monetization);
+                            break;
+                        }
                     }
-                });
+                }
 
                 return ret;
             }
 
             return _sendMessage.apply(this, args);
+        };
+    }
+
+    function createOnLinkInfoProxy() {
+        return function(...args) {
+            const linkInfo = args[0];
+
+            log("Link info received:", linkInfo);
+
+            Object.defineProperty(linkInfo, "isAdblockEnabled", {
+                get() { return false },
+                set(newValue) {
+                    log("Attempted to set isAdblockEnabled to:", newValue);
+                },
+                configurable: false,
+                enumerable: true
+            });
+
+            return _onLinkInfo.apply(this, args);
         };
     }
 
@@ -170,33 +173,49 @@
 
     function setupSessionControllerProxy() {
         _sendMessage = _sessionController.sendMessage;
+        _onLinkInfo = _sessionController.onLinkInfo;
         _onLinkDestination = _sessionController.onLinkDestination;
 
         const sendMessageProxy = createSendMessageProxy();
+        const onLinkInfoProxy = createOnLinkInfoProxy();
         const onLinkDestinationProxy = createOnLinkDestinationProxy();
 
         Object.defineProperty(_sessionController, "sendMessage", {
             get() { return sendMessageProxy },
             set(newValue) {
                 _sendMessage = newValue
-            }
+            },
+            configurable: false,
+            enumerable: true
+        });
+
+        Object.defineProperty(_sessionController, "onLinkInfo", {
+            get() { return onLinkInfoProxy },
+            set(newValue) {
+                _onLinkInfo = newValue
+            },
+            configurable: false,
+            enumerable: true
         });
 
         Object.defineProperty(_sessionController, "onLinkDestination", {
             get() { return onLinkDestinationProxy },
             set(newValue) {
                 _onLinkDestination = newValue
-            }
+            },
+            configurable: false,
+            enumerable: true
         });
 
         log("SessionController proxies installed: sendMessage, onLinkDestination");
     }
 
     function checkForSessionController(target, prop, value, receiver) {
+        log("Checking property set:", prop, value);
         if (value &&
             typeof value === "object" &&
             typeof value.sendMessage === "function" &&
-            typeof value._onMessage === "function" &&
+            typeof value.onLinkInfo === "function" &&
             typeof value.onLinkDestination === "function" &&
             !_sessionController
         ) {
