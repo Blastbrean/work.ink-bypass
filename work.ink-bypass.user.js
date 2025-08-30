@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         work.ink bypass
 // @namespace    http://tampermonkey.net/
-// @version      2025-08-29
+// @version      2025-08-30
 // @description  bypasses work.ink shortened links
 // @author       IHaxU
 // @match        https://work.ink/*
@@ -52,7 +52,7 @@
 
     // Global state
     let _sessionController = undefined;
-    let _sendMessage = undefined;
+    let _sendMsg = undefined;
     let _onLinkInfo = undefined;
     let _onLinkDestination = undefined;
 
@@ -75,7 +75,7 @@
         };
     }
 
-    function createSendMessageProxy() {
+    function createSendMsgProxy() {
         const clientPacketTypes = getClientPacketTypes();
 
         return function(...args) {
@@ -90,7 +90,7 @@
             }
 
             if (_sessionController.linkInfo && packet_type === clientPacketTypes.TURNSTILE_RESPONSE) {
-                const ret = _sendMessage.apply(this, args);
+                const ret = _sendMsg.apply(this, args);
 
                 hint.textContent = "🎉 Captcha solved, redirecting...";
 
@@ -98,7 +98,7 @@
                 for (const monetization of _sessionController.linkInfo.monetizations) {
                     switch (monetization) {
                         case 22: { // readArticles2
-                            _sendMessage.call(this, clientPacketTypes.MONETIZATION, {
+                            _sendMsg.call(this, clientPacketTypes.MONETIZATION, {
                                 type: "readArticles2",
                                 payload: {
                                     event: "read"
@@ -108,7 +108,7 @@
                         }
 
                         case 45: { // pdfeditor
-                            _sendMessage.call(this, clientPacketTypes.MONETIZATION, {
+                            _sendMsg.call(this, clientPacketTypes.MONETIZATION, {
                                 type: "pdfeditor",
                                 payload: {
                                     event: "installed"
@@ -118,12 +118,13 @@
                         }
 
                         case 57: { // betterdeals
-                            _sendMessage.call(this, clientPacketTypes.MONETIZATION, {
+                            _sendMsg.call(this, clientPacketTypes.MONETIZATION, {
                                 type: "betterdeals",
                                 payload: {
                                     event: "installed"
                                 }
                             });
+                            break;
                         }
 
                         default: {
@@ -136,7 +137,7 @@
                 return ret;
             }
 
-            return _sendMessage.apply(this, args);
+            return _sendMsg.apply(this, args);
         };
     }
 
@@ -172,18 +173,18 @@
     }
 
     function setupSessionControllerProxy() {
-        _sendMessage = _sessionController.sendMessage;
+        _sendMsg = _sessionController.sendMsg;
         _onLinkInfo = _sessionController.onLinkInfo;
         _onLinkDestination = _sessionController.onLinkDestination;
 
-        const sendMessageProxy = createSendMessageProxy();
+        const sendMsgProxy = createSendMsgProxy();
         const onLinkInfoProxy = createOnLinkInfoProxy();
         const onLinkDestinationProxy = createOnLinkDestinationProxy();
 
-        Object.defineProperty(_sessionController, "sendMessage", {
-            get() { return sendMessageProxy },
+        Object.defineProperty(_sessionController, "sendMsg", {
+            get() { return sendMsgProxy },
             set(newValue) {
-                _sendMessage = newValue
+                _sendMsg = newValue
             },
             configurable: false,
             enumerable: true
@@ -207,14 +208,14 @@
             enumerable: true
         });
 
-        log("SessionController proxies installed: sendMessage, onLinkDestination");
+        log("SessionController proxies installed: sendMsg, onLinkDestination");
     }
 
     function checkForSessionController(target, prop, value, receiver) {
         log("Checking property set:", prop, value);
         if (value &&
             typeof value === "object" &&
-            typeof value.sendMessage === "function" &&
+            typeof value.sendMsg === "function" &&
             typeof value.onLinkInfo === "function" &&
             typeof value.onLinkDestination === "function" &&
             !_sessionController
