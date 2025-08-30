@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         work.ink bypass
 // @namespace    http://tampermonkey.net/
-// @version      2025-08-30-1
+// @version      2025-08-30-2
 // @description  bypasses work.ink shortened links
 // @author       IHaxU
 // @match        https://work.ink/*
@@ -51,7 +51,7 @@
     document.documentElement.appendChild(container);
 
     const NAME_MAP = {
-        sendMessage: ["sendMessage", "sendMsg"],
+        sendMessage: ["sendMessage", "sendMsg", "writeMessage"],
         onLinkInfo: ["onLinkInfo"],
         onLinkDestination: ["onLinkDestination"]
     };
@@ -68,7 +68,7 @@
 
     // Global state
     let _sessionController = undefined;
-    let _sendMsg = undefined;
+    let _sendMessage = undefined;
     let _onLinkInfo = undefined;
     let _onLinkDestination = undefined;
 
@@ -91,7 +91,7 @@
         };
     }
 
-    function createSendMsgProxy() {
+    function createSendMessageProxy() {
         const clientPacketTypes = getClientPacketTypes();
 
         return function(...args) {
@@ -106,7 +106,7 @@
             }
 
             if (_sessionController.linkInfo && packet_type === clientPacketTypes.TURNSTILE_RESPONSE) {
-                const ret = _sendMsg.apply(this, args);
+                const ret = _sendMessage.apply(this, args);
 
                 hint.textContent = "🎉 Captcha solved, redirecting...";
 
@@ -114,7 +114,7 @@
                 for (const monetization of _sessionController.linkInfo.monetizations) {
                     switch (monetization) {
                         case 22: { // readArticles2
-                            _sendMsg.call(this, clientPacketTypes.MONETIZATION, {
+                            _sendMessage.call(this, clientPacketTypes.MONETIZATION, {
                                 type: "readArticles2",
                                 payload: {
                                     event: "read"
@@ -124,7 +124,7 @@
                         }
 
                         case 45: { // pdfeditor
-                            _sendMsg.call(this, clientPacketTypes.MONETIZATION, {
+                            _sendMessage.call(this, clientPacketTypes.MONETIZATION, {
                                 type: "pdfeditor",
                                 payload: {
                                     event: "installed"
@@ -134,7 +134,7 @@
                         }
 
                         case 57: { // betterdeals
-                            _sendMsg.call(this, clientPacketTypes.MONETIZATION, {
+                            _sendMessage.call(this, clientPacketTypes.MONETIZATION, {
                                 type: "betterdeals",
                                 payload: {
                                     event: "installed"
@@ -153,7 +153,7 @@
                 return ret;
             }
 
-            return _sendMsg.apply(this, args);
+            return _sendMessage.apply(this, args);
         };
     }
 
@@ -193,18 +193,18 @@
         const onLinkInfo = resolveName(_sessionController, NAME_MAP.onLinkInfo);
         const onLinkDestination = resolveName(_sessionController, NAME_MAP.onLinkDestination);
 
-        _sendMsg = sendMessage.fn;
+        _sendMessage = sendMessage.fn;
         _onLinkInfo = onLinkInfo.fn;
         _onLinkDestination = onLinkDestination.fn;
 
-        const sendMsgProxy = createSendMsgProxy();
+        const sendMessageProxy = createSendMessageProxy();
         const onLinkInfoProxy = createOnLinkInfoProxy();
         const onLinkDestinationProxy = createOnLinkDestinationProxy();
 
         // Patch the actual property name that exists
         Object.defineProperty(_sessionController, sendMessage.name, {
-            get() { return sendMsgProxy },
-            set(newValue) { _sendMsg = newValue },
+            get() { return sendMessageProxy },
+            set(newValue) { _sendMessage = newValue },
             configurable: false,
             enumerable: true
         });
