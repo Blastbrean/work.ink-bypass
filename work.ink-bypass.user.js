@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         work.ink bypass
 // @namespace    http://tampermonkey.net/
-// @version      2025-08-30-2
+// @version      2025-09-01
 // @description  bypasses work.ink shortened links
 // @author       IHaxU
 // @match        https://work.ink/*
@@ -51,7 +51,7 @@
     document.documentElement.appendChild(container);
 
     const NAME_MAP = {
-        sendMessage: ["sendMessage", "sendMsg", "writeMessage"],
+        sendMessage: ["sendMessage", "sendMsg", "writeMessage", "writeMsg"],
         onLinkInfo: ["onLinkInfo"],
         onLinkDestination: ["onLinkDestination"]
     };
