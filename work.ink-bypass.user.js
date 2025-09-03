@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         work.ink bypass
 // @namespace    http://tampermonkey.net/
-// @version      2025-09-01
+// @version      2025-09-03
 // @description  bypasses work.ink shortened links
 // @author       IHaxU
 // @match        https://work.ink/*
@@ -111,6 +111,12 @@
                 hint.textContent = "🎉 Captcha solved, redirecting...";
 
                 // Send bypass messages
+                for (const social of _sessionController.linkInfo.socials) {
+                    _sendMessage.call(this, clientPacketTypes.SOCIAL_STARTED, {
+                        url: social.url
+                    });
+                }
+
                 for (const monetization of _sessionController.linkInfo.monetizations) {
                     switch (monetization) {
                         case 22: { // readArticles2
@@ -121,6 +127,51 @@
                                 }
                             });
                             break;
+                        }
+
+                        case 25: { // operaGX
+                            _sendMessage.call(this, clientPacketTypes.MONETIZATION, {
+                                type: "operaGX",
+                                payload: {
+                                    event: "start"
+                                }
+                            });
+                            _sendMessage.call(this, clientPacketTypes.MONETIZATION, {
+                                type: "operaGX",
+                                payload: {
+                                    event: "installClicked"
+                                }
+                            });
+                            fetch('https://work.ink/_api/v2/callback/operaGX', {
+                                method: 'POST',
+                                body: JSON.stringify({
+                                    'noteligible': true
+                                })
+                            });
+                        }
+
+                        case 34: { // operaGX
+                            _sendMessage.call(this, clientPacketTypes.MONETIZATION, {
+                                type: "norton",
+                                payload: {
+                                    event: "start"
+                                }
+                            });
+                            _sendMessage.call(this, clientPacketTypes.MONETIZATION, {
+                                type: "norton",
+                                payload: {
+                                    event: "installClicked"
+                                }
+                            });
+                        }
+
+                        case 71: { // externalArticles
+                            _sendMessage.call(this, clientPacketTypes.MONETIZATION, {
+                                type: "externalArticles",
+                                payload: {
+                                    event: "installClicked"
+                                }
+                            });
                         }
 
                         case 45: { // pdfeditor
