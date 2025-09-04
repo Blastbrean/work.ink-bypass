@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         work.ink bypass
 // @namespace    http://tampermonkey.net/
-// @version      2025-09-03
+// @version      2025-09-04
 // @description  bypasses work.ink shortened links
 // @author       IHaxU
 // @match        https://work.ink/*
@@ -148,6 +148,7 @@
                                     'noteligible': true
                                 })
                             });
+                            break;
                         }
 
                         case 34: { // operaGX
@@ -163,6 +164,7 @@
                                     event: "installClicked"
                                 }
                             });
+                            break;
                         }
 
                         case 71: { // externalArticles
@@ -172,6 +174,7 @@
                                     event: "installClicked"
                                 }
                             });
+                            break;
                         }
 
                         case 45: { // pdfeditor
