@@ -151,7 +151,7 @@
                             break;
                         }
 
-                        case 34: { // operaGX
+                        case 34: { // norton
                             _sendMessage.call(this, clientPacketTypes.MONETIZATION, {
                                 type: "norton",
                                 payload: {
