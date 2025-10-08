@@ -14,7 +14,7 @@
 (function() {
     "use strict";
     
-    const DEBUG = false; // debug logging
+    const DEBUG = true; // debug logging
 
     // Preserve original console methods in case the site overrides them
     const oldLog = unsafeWindow.console.log;
@@ -56,7 +56,7 @@
     unsafeWindow.document.documentElement.appendChild(container);
 
     const NAME_MAP = {
-        sendMessage: ["sendMessage", "sendMsg", "writeMessage", "writeMsg"],
+        sendMessage: ["sendMessage", "sendMsg", "writeMessage", "writeMsg", "writMessage"],
         onLinkInfo: ["onLinkInfo"],
         onLinkDestination: ["onLinkDestination"]
     };
@@ -279,14 +279,7 @@
             const payload = args[0];
             log("Link destination received:", payload);
 
-            const waitTimeSeconds = 30;
-            const secondsPassed = (Date.now() - startTime) / 1000;
-
-            if (secondsPassed >= waitTimeSeconds) {
-                redirect(payload.url);
-            } else {
-                startCountdown(payload.url, waitTimeSeconds - secondsPassed);
-            }
+            startCountdown(payload.url, 30);
 
             return _onLinkDestination.apply(this, args);
         };
